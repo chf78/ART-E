@@ -2826,7 +2826,7 @@ void setup()
   PID_speed.P = 0.06;        // 0.06
   PID_speed.I = 0.005;       // 0.005
   readEEPROM();
-  //megapi_mode = BALANCED_MODE;
+  megapi_mode = AUTOMATIC_OBSTACLE_AVOIDANCE_MODE;
   Serial.print("Version: ");
   Serial.println(mVersion);
   update_sensor = lasttime_speed = lasttime_angle = millis();
