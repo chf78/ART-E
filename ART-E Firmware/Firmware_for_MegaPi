@@ -2493,6 +2493,16 @@ void balanced_model(void)
   } 
 }
 
+void TreeScan(void){
+    
+    Stop();
+    delay(500);
+    encoders[2].moveTo(2160,300); // lower the arm
+    delay(2000);  // scanning the tree
+    encoders[2].moveTo(0,300);
+
+}
+
 /**
  * \par Function
  *    ultrCarProcess
@@ -2525,11 +2535,7 @@ void ultrCarProcess(void)
 
   if((distance > 20) && (distance < 40))
   {
-    Stop();
-    delay(500);
-    encoders[3].moveTo(2160,300); // lower the arm
-    delay(2000);  // scanning the tree
-    encoders[3].moveTo(0,300);
+    TreeScan();
     
     BackwardAndTurnLeft();
     for(int16_t i=0;i<300;i++)
@@ -2835,6 +2841,7 @@ void setup()
     encoders[i].setPosPid(1.8,0,1.2);
     encoders[i].setSpeedPid(0.18,0,0);
     encoders[i].setMotionMode(DIRECT_MODE);
+    //encoders[2].setMotionMode(PID_MODE);
   }
 
   leftflag=false;
