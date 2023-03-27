@@ -1,65 +1,15 @@
-/*************************************************************************
-* File Name          : Firmware_for_MegaPi.ino
-* Author             : myan
-* Updated            : myan
-* Version            : V0e.01.017
-* Date               : 03/19/2020
-* Description        : Firmware for Makeblock Electronic modules with Scratch.  
-* License            : CC-BY-SA 3.0
-* Copyright (C) 2013 - 2016 Maker Works Technology Co., Ltd. All right reserved.
-* http://www.makeblock.cc/
-* History:
-* <Author>         <Time>         <Version>        <Descr>
-* Mark Yan         2016/03/12     0e.01.001        build the new.
-* Mark Yan         2016/05/04     0e.01.002        Added encoder and compass driver and fix some bugs.
-* Mark Yan         2016/05/07     0e.01.003        Delete watchdog and add On board stepper driver.
-* Mark Yan         2016/05/24     0e.01.004        Fix issue MBLOCK-1 and MBLOCK-12(JIRA issue).
-* Mark Yan         2016/06/07     0e.01.005        Fix encoder speed issue.
-* Mark Yan         2016/06/22     0e.01.006        Fix issue MAK-187 (bluetooth fatal error from MBLOCK-12)
-* Mark Yan         2016/06/25     0e.01.007        Fix issue MBLOCK-38(limit switch return value).
-* Mark Yan         2016/07/06     0e.01.008        Fix issue MBLOCK-61(ultrasonic distance limitations bug).
-* Mark Yan         2016/07/27     0e.01.009        Add position parameters for encoder motor,fix issue MBLOCK-77.
-* Mark Yan         2016/08/01     0e.01.010        Fix issue MBLOCK-109 MBLOCK-110(encoder motor exception handling negative).
-* Mark Yan         2016/08/10     0e.01.011        Fix issue MBLOCK-126(on board encoder motor speed symbol).
-* Mark Yan         2016/08/24     0e.01.012        Fix issue MBLOCK-171(Stepper online execution slow), MBLOCK-189(on board encoder motor reset issue).
-* Mark Yan         2017/03/01     0e.01.013        fix RGB lights issue.
-* Mark Yan         2017/06/21     0e.01.014        fix JIRA issue 668 710.
-* Mark Yan         2018/01/03     0e.01.015        add the absolute motor move for encode motor & add new stepper command.
-* payton           2018/07/30     0e.01.016        The "megapi_mode" is no longer saved when the power is broken. Default is "BLUETOOTH_MODE"
-* Payton           2020/03/19     0e.01.017        Support raspberry pi python lib.
-* Payton           2020/04/01     0e.01.018        Repair encoder motor bug.
-**************************************************************************/
+
+
+
 #include <Arduino.h>
 #include <MeMegaPi.h>
 #include "MeEEPROM.h"
 #include <Wire.h>
 #include <SoftwareSerial.h>
 
-//#define DEBUG_INFO
-//#define DEBUG_INFO1
 
-Servo servos[12];  
-MeMegaPiDCMotor dc;
-MeTemperature ts;
-MeRGBLed led;
 MeUltrasonicSensor *us = NULL;     //PORT_7
-Me7SegmentDisplay seg;
-MePort generalDevice;
-MeLEDMatrix ledMx;
-MeInfraredReceiver *ir = NULL;     //PORT_6
-MeGyro gyro_ext(0,0x68);           //external gryo sensor
-MeCompass Compass;
-MeJoystick joystick;
-MeStepperOnBoard steppers[4] = {MeStepperOnBoard(1),MeStepperOnBoard(2),MeStepperOnBoard(3),MeStepperOnBoard(4)};
-MeBuzzer buzzer;
-MeHumiture humiture;
-MeFlameSensor FlameSensor;
-MeGasSensor GasSensor;
-MeTouchSensor touchSensor;
-Me4Button buttonSensor;
 MeEncoderOnBoard encoders[4];
-MeLineFollower line(PORT_8);
-MeColorSensor *colorsensor  = NULL;
 
 typedef struct MeModule
 {
@@ -89,6 +39,7 @@ union
   uint8_t byteVal[2];
   int16_t shortVal;
 }valShort;
+
 MeModule modules[12];
 #if defined(__AVR_ATmega32U4__) 
   int16_t analogs[12]={A0,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11};
@@ -108,8 +59,8 @@ int16_t turnSpeed = 180;
 int16_t minSpeed = 45;
 int16_t factor = 23;
 int16_t distance=0;
-int16_t randnum = 0;                                                                               
-int16_t LineFollowFlag=0;
+int16_t randnum = 0;
+
 
 #define MOVE_STOP       0x00
 #define MOVE_FORWARD    0x01
@@ -117,14 +68,7 @@ int16_t LineFollowFlag=0;
 
 #define BLUETOOTH_MODE                       0x00
 #define AUTOMATIC_OBSTACLE_AVOIDANCE_MODE    0x01
-#define BALANCED_MODE                        0x02
-#define IR_REMOTE_MODE                       0x03
-#define LINE_FOLLOW_MODE                     0x04
-#define MAX_MODE                             0x05
 
-//#define POWER_PORT                           A4
-//#define BUZZER_PORT                          45
-//#define RGBLED_PORT                          44
 
 #define DATA_SERIAL                            0
 #define DATA_SERIAL1                           1
@@ -136,7 +80,6 @@ uint8_t megapi_mode = BLUETOOTH_MODE;
 uint8_t index = 0;
 uint8_t dataLen;
 uint8_t modulesLen=0;
-uint8_t irRead = 0;
 uint8_t prevc=0;
 uint8_t BluetoothSource = DATA_SERIAL;
 uint8_t keyPressed = KEY_NULL;
@@ -146,15 +89,14 @@ uint8_t bufferBt1[52];
 uint8_t bufferBt2[52];
 double  lastTime = 0.0;
 double  currentTime = 0.0;
-double  CompAngleY, CompAngleX, GyroXangle;
-double  LastCompAngleY, LastCompAngleX, LastGyroXangle;
+double  CompAngleY, CompAngleX;
+double  LastCompAngleY, LastCompAngleX;
 double  last_turn_setpoint_filter = 0.0;
 double  last_speed_setpoint_filter = 0.0;
 double  last_speed_error_filter = 0.0;
 double  speed_Integral_average = 0.0;
 double  angle_speed = 0.0;
 
-float angleServo = 90.0;
 float dt;
 
 long lasttime_angle = 0;
@@ -173,55 +115,30 @@ boolean move_flag = false;
 boolean blink_flag = false;
 
 String mVersion = "0e.01.018";
-//////////////////////////////////////////////////////////////////////////////////////
-float RELAX_ANGLE = -1;                    //Natural balance angle,should be adjustment according to your own car
+
 #define PWM_MIN_OFFSET   0
 
 #define VERSION                0
 #define ULTRASONIC_SENSOR      1
-#define TEMPERATURE_SENSOR     2
-#define LIGHT_SENSOR           3
 #define POTENTIONMETER         4
 #define JOYSTICK               5
-#define GYRO                   6
-#define SOUND_SENSOR           7
-#define RGBLED                 8
-#define SEVSEG                 9
 #define MOTOR                  10
-#define SERVO                  11
 #define ENCODER                12
-#define IR                     13
-#define PIRMOTION              15
-#define INFRARED               16
-#define LINEFOLLOWER           17
-#define SHUTTER                20
 #define LIMITSWITCH            21
 #define BUTTON                 22
-#define HUMITURE               23
-#define FLAMESENSOR            24
-#define GASSENSOR              25
-#define COMPASS                26
-#define TEMPERATURE_SENSOR_1   27
 #define DIGITAL                30
 #define ANALOG                 31
 #define PWM                    32
-#define SERVO_PIN              33
-#define TONE                   34
 #define BUTTON_INNER           35
 #define ULTRASONIC_ARDUINO     36
 #define PULSEIN                37
-#define STEPPER                40
-#define LEDMATRIX              41
 #define TIMER                  50
-#define TOUCH_SENSOR           51
 #define JOYSTICK_MOVE          52
 #define COMMON_COMMONCMD       60
   //Secondary command
   #define SET_STARTER_MODE     0x10
-  #define SET_AURIGA_MODE      0x11
   #define SET_MEGAPI_MODE      0x12
   #define GET_BATTERY_POWER    0x70
-  #define GET_AURIGA_MODE      0x71
   #define GET_MEGAPI_MODE      0x72
 #define ENCODER_BOARD 61
   //Read type
@@ -237,18 +154,6 @@ float RELAX_ANGLE = -1;                    //Natural balance angle,should be adj
   #define ENCODER_BOARD_CAR_POS_MOTION     0x05
   #define ENCODER_BOARD_POS_MOTION_MOVETO  0x06
 
-#define STEPPER_NEW            76
-  //Secondary command
-  #define STEPPER_POS_MOTION_MOVE          0x01
-  #define STEPPER_SPEED_MOTION             0x02
-  #define STEPPER_SET_CUR_POS_ZERO         0x04
-  #define STEPPER_POS_MOTION_MOVETO        0x06
-
-#define COLORSENSOR            67
-  //Secondary command
-  #define GETRGB                           0x01
-  #define GETBOOL                          0x02
-  #define GETCOLOR                         0x03
 
 #define GET 1
 #define RUN 2
@@ -285,27 +190,6 @@ void encoder_move_finish_callback(int slot,int extId)
   writeEnd();
 }
 
-/**
- * \par Function
- *    stepper_move_finish_callback
- * \par Description
- *    This function called when stepper motor move finish.
- * \param[in]
- *    None
- * \par Output
- *    None
- * \return
- *    None
- * \par Others
- *    None
- */
-void stepper_move_finish_callback(int slot,int extId)
-{
-  writeHead();
-  writeSerial(extId);
-  sendByte(slot);
-  writeEnd();
-}
 /**
  * \par Function
  *    isr_process_encoder1
@@ -416,43 +300,6 @@ void isr_process_encoder4(void)
 
 /**
  * \par Function
- *    WriteBalancedDataToEEPROM
- * \par Description
- *    This function use to write the balanced car configuration parameters to EEPROM.
- * \param[in]
- *    None
- * \par Output
- *    None
- * \return
- *    None
- * \par Others
- *    None
- */
-void WriteBalancedDataToEEPROM(void)
-{
-  EEPROM.write(BALANCED_CAR_PARTITION_CHECK, EEPROM_IF_HAVEPID_CHECK1);
-  EEPROM.write(BALANCED_CAR_PARTITION_CHECK + 1, EEPROM_IF_HAVEPID_CHECK2);
-  EEPROM.write(BALANCED_CAR_START_ADDR, EEPROM_CHECK_START);
-
-  EEPROM.put(BALANCED_CAR_NATURAL_BALANCE, RELAX_ANGLE);
-  EEPROM.put(BALANCED_CAR_ANGLE_PID_ADDR, PID_angle.P);
-  EEPROM.put(BALANCED_CAR_ANGLE_PID_ADDR+4, PID_angle.I);
-  EEPROM.put(BALANCED_CAR_ANGLE_PID_ADDR+8, PID_angle.D);
-
-  EEPROM.put(BALANCED_CAR_SPEED_PID_ADDR, PID_speed.P);
-  EEPROM.put(BALANCED_CAR_SPEED_PID_ADDR+4, PID_speed.I);
-  EEPROM.put(BALANCED_CAR_SPEED_PID_ADDR+8, PID_speed.D);
-
-  EEPROM.put(BALANCED_CAR_DIR_PID_ADDR, PID_turn.P);
-  EEPROM.write(BALANCED_CAR_END_ADDR, EEPROM_CHECK_END);
-
-  EEPROM.write(MEGAPI_MODE_START_ADDR, EEPROM_CHECK_START);
-  EEPROM.write(MEGAPI_MODE_CONFIGURE, megapi_mode);
-  EEPROM.write(MEGAPI_MODE_END_ADDR, EEPROM_CHECK_END);
-}
-
-/**
- * \par Function
  *    WriteMegapiModeToEEPROM
  * \par Description
  *    This function use to write the MegaPi Mode configuration parameter to EEPROM.
@@ -474,290 +321,50 @@ void WriteMegapiModeToEEPROM(void)
   EEPROM.write(MEGAPI_MODE_END_ADDR, EEPROM_CHECK_END);
 }
 
-/**
- * \par Function
- *    readEEPROM
- * \par Description
- *    This function use to read the configuration parameters from EEPROM.
- * \param[in]
- *    None
- * \par Output
- *    None
- * \return
- *    None
- * \par Others
- *    None
- */
-void readEEPROM(void)
-{
-  if((EEPROM.read(BALANCED_CAR_PARTITION_CHECK) == EEPROM_IF_HAVEPID_CHECK1) && (EEPROM.read(BALANCED_CAR_PARTITION_CHECK + 1) == EEPROM_IF_HAVEPID_CHECK2))
-  {
-    if((EEPROM.read(BALANCED_CAR_START_ADDR)  == EEPROM_CHECK_START) && (EEPROM.read(BALANCED_CAR_END_ADDR)  == EEPROM_CHECK_END))
-    {
-      EEPROM.get(BALANCED_CAR_NATURAL_BALANCE, RELAX_ANGLE);
-      EEPROM.get(BALANCED_CAR_ANGLE_PID_ADDR, PID_angle.P);
-      EEPROM.get(BALANCED_CAR_ANGLE_PID_ADDR+4, PID_angle.I);
-      EEPROM.get(BALANCED_CAR_ANGLE_PID_ADDR+8, PID_angle.D);
-
-      EEPROM.get(BALANCED_CAR_SPEED_PID_ADDR, PID_speed.P);
-      EEPROM.get(BALANCED_CAR_SPEED_PID_ADDR+4, PID_speed.I);
-      EEPROM.get(BALANCED_CAR_SPEED_PID_ADDR+8, PID_speed.D);
-
-      EEPROM.get(BALANCED_CAR_DIR_PID_ADDR, PID_turn.P);
-#ifdef DEBUG_INFO
-      Serial.println( "Read data from EEPROM:");
-      Serial.print(RELAX_ANGLE);
-      Serial.print( "  ");
-      Serial.print(PID_angle.P);
-      Serial.print( "  ");
-      Serial.print(PID_angle.I);
-      Serial.print( "  ");
-      Serial.print(PID_angle.D);
-      Serial.print( "  ");
-      Serial.print(PID_speed.P);
-      Serial.print( "  ");
-      Serial.print(PID_speed.I);
-      Serial.print( "  ");
-      Serial.print(PID_speed.D);
-      Serial.print( "  ");
-      Serial.println(PID_turn.P);
-#endif
-    }
-    else
-    {
-      Serial.println( "Data area damage on balanced car pid!" );
-    }
-  }
-  else
-  {
-#ifdef DEBUG_INFO
-    Serial.println( "First written Balanced data!" );
-#endif
-    WriteBalancedDataToEEPROM();
-  }
-
-  if((EEPROM.read(MEGAPI_MODE_PARTITION_CHECK) == EEPROM_IF_HAVEPID_CHECK1) && (EEPROM.read(MEGAPI_MODE_PARTITION_CHECK + 1) == EEPROM_IF_HAVEPID_CHECK2))
-  {
-    if((EEPROM.read(MEGAPI_MODE_START_ADDR)  == EEPROM_CHECK_START) && (EEPROM.read(MEGAPI_MODE_END_ADDR)  == EEPROM_CHECK_END))
-    {
-      EEPROM.get(MEGAPI_MODE_CONFIGURE, megapi_mode);
-#ifdef DEBUG_INFO
-      Serial.print( "Read megapi_mode from EEPROM:");
-      Serial.println(megapi_mode);
-#endif
-    }
-    else
-    {
-      Serial.println( "Data area damage on megapi mode!" );
-    }
-  }
-  else
-  {
-#ifdef DEBUG_INFO
-    Serial.println( "First written auriga mode!" );
-#endif
-    WriteMegapiModeToEEPROM();
-  }
-}
-
-/**
- * \par Function
- *    Forward
- * \par Description
- *    This function use to control the car kit go forward.
- * \param[in]
- *    None
- * \par Output
- *    None
- * \return
- *    None
- * \par Others
- *    None
- */
+/**************** Encoder Motor Functions ************************/
 void Forward(void)
 {
   encoders[0].setMotorPwm(moveSpeed);
   encoders[1].setMotorPwm(-moveSpeed);
 }
 
-/**
- * \par Function
- *    Backward
- * \par Description
- *    This function use to control the car kit go backward.
- * \param[in]
- *    None
- * \par Output
- *    None
- * \return
- *    None
- * \par Others
- *    None
- */
 void Backward(void)
 {
   encoders[0].setMotorPwm(-moveSpeed);
   encoders[1].setMotorPwm(moveSpeed);
 }
 
-/**
- * \par Function
- *    BackwardAndTurnLeft
- * \par Description
- *    This function use to control the car kit go backward and turn left.
- * \param[in]
- *    None
- * \par Output
- *    None
- * \return
- *    None
- * \par Others
- *    None
- */
 void BackwardAndTurnLeft(void)
 {
   encoders[0].setMotorPwm(-moveSpeed/4);
   encoders[1].setMotorPwm(moveSpeed);
 }
 
-/**
- * \par Function
- *    BackwardAndTurnRight
- * \par Description
- *    This function use to control the car kit go backward and turn right.
- * \param[in]
- *    None
- * \par Output
- *    None
- * \return
- *    None
- * \par Others
- *    None
- */
 void BackwardAndTurnRight(void)
 {
   encoders[0].setMotorPwm(-moveSpeed);
   encoders[1].setMotorPwm(moveSpeed/4);
 }
 
-/**
- * \par Function
- *    TurnLeft
- * \par Description
- *    This function use to control the car kit go backward and turn left.
- * \param[in]
- *    None
- * \par Output
- *    None
- * \return
- *    None
- * \par Others
- *    None
- */
 void TurnLeft(void)
 {
   encoders[0].setMotorPwm(moveSpeed);
   encoders[1].setMotorPwm(-moveSpeed/2);
 }
 
-/**
- * \par Function
- *    TurnRight
- * \par Description
- *    This function use to control the car kit go backward and turn right.
- * \param[in]
- *    None
- * \par Output
- *    None
- * \return
- *    None
- * \par Others
- *    None
- */
 void TurnRight(void)
 {
   encoders[0].setMotorPwm(moveSpeed/2);
   encoders[1].setMotorPwm(-moveSpeed);
 }
 
-/**
- * \par Function
- *    TurnLeft1
- * \par Description
- *    This function use to control the car kit go backward and turn left(fast).
- * \param[in]
- *    None
- * \par Output
- *    None
- * \return
- *    None
- * \par Others
- *    None
- */
-void TurnLeft1(void)
-{
-  encoders[0].setMotorPwm(moveSpeed);
-  encoders[1].setMotorPwm(moveSpeed);
-}
-
-/**
- * \par Function
- *    TurnRight1
- * \par Description
- *    This function use to control the car kit go backward and turn right(fast).
- * \param[in]
- *    None
- * \par Output
- *    None
- * \return
- *    None
- * \par Others
- *    None
- */
-void TurnRight1(void)
-{
-  encoders[0].setMotorPwm(-moveSpeed);
-  encoders[1].setMotorPwm(-moveSpeed);
-}
-
-/**
- * \par Function
- *    Stop
- * \par Description
- *    This function use to stop the car kit.
- * \param[in]
- *    None
- * \par Output
- *    None
- * \return
- *    None
- * \par Others
- *    None
- */
 void Stop(void)
 {
   encoders[0].setMotorPwm(0);
   encoders[1].setMotorPwm(0);
 }
 
-/**
- * \par Function
- *    ChangeSpeed
- * \par Description
- *    This function use to change the speed of car kit.
- * \param[in]
- *    spd - the speed of car kit(-255 ~ 255)
- * \par Output
- *    None
- * \return
- *    None
- * \par Others
- *    None
- */
-void ChangeSpeed(int16_t spd)
-{
-  moveSpeed = spd;
-}
+/*********************************************************/
 
 /**
  * \par Function
@@ -987,31 +594,8 @@ void parseData(void)
           encoders[i].moveTo(0,10);
           encoders[i].setMotorPwm(0);
           encoders[i].setMotionMode(DIRECT_MODE);
-          steppers[i].setCurrentPosition(0);
-          steppers[i].moveTo(0);
-          steppers[i].disableOutputs();
         }
 
-        /* reset dc motor on driver port */
-        dc.reset(PORT1A);
-        dc.run(0);
-        dc.reset(PORT1B);
-        dc.run(0);
-        dc.reset(PORT2A);
-        dc.run(0);
-        dc.reset(PORT2B);
-        dc.run(0);
-        dc.reset(PORT3A);
-        dc.run(0);
-        dc.reset(PORT3B);
-        dc.run(0);
-        dc.reset(PORT4A);
-        dc.run(0);
-        dc.reset(PORT4B);
-        dc.run(0);
-
-        /* reset stepper motor driver */
-        
         callOK();
       }
       break;
@@ -1045,20 +629,7 @@ void callOK(void)
   writeEnd();
 }
 
-/**
- * \par Function
- *    sendByte
- * \par Description
- *    Send byte data
- * \param[in]
- *    c - the byte data need be sent.
- * \par Output
- *    None
- * \return
- *    None
- * \par Others
- *    None
- */
+/*********************** Functions for Sending Data ***************/
 void sendByte(uint8_t c)
 {
   writeSerial(1);
@@ -1164,7 +735,7 @@ void sendShort(int16_t value)
  * \par Function
  *    sendDouble
  * \par Description
- *    Sned double data, same as float data on arduino.
+ *    Send double data, same as float data on arduino.
  * \param[in]
  *    value - the double data need be sent.
  * \par Output
@@ -1183,7 +754,9 @@ void sendDouble(double value)
   writeSerial(valDouble.byteVal[2]);
   writeSerial(valDouble.byteVal[3]);
 }
+/***************************************************************/
 
+/***************** Functions for Reading Data ******************/
 /**
  * \par Function
  *    readShort
@@ -1308,33 +881,8 @@ uint8_t* readUint8(int16_t idx,int16_t len)
   }
   return _receiveUint8;
 }
+/*****************************************************************/
 
-/**
- * \par Function
- *    initStepper
- * \par Description
- *    Initialize acceleration, subdivision, and speed for stepper motor.
- * \param[in]
- *    index - The index of stepper.
- * \param[in]
- *    maxSpeed - The max speed of stepper.
- * \par Output
- *    None
- * \return
- *    None
- * \par Others
- *    None
- */
-void initStepper(uint8_t index,int16_t maxSpeed)
-{
-  // steppers[index].setpin(index+1);
-
-  steppers[index].setMaxSpeed(maxSpeed);
-  steppers[index].setAcceleration(20000);
-  steppers[index].setMicroStep(16);
-  steppers[index].setSpeed(maxSpeed);
-  steppers[index].enableOutputs();
-}
 /**
  * \par Function
  *    runModule
@@ -1356,13 +904,6 @@ void runModule(uint8_t device)
   uint8_t pin = port;
   switch(device)
   {
-    case MOTOR:
-      {
-        int16_t speed = readShort(7);
-        dc.reset(port);
-        dc.run(speed);
-      }
-      break;
     case ENCODER_BOARD:
       if(port == 0)
       {
@@ -1372,83 +913,6 @@ void runModule(uint8_t device)
         encoders[slot-1].setTarPWM(speed_value);
       }
       break;
-    case JOYSTICK:
-      {
-        int16_t leftSpeed = readShort(6);
-        encoders[0].setTarPWM(-leftSpeed);
-        int16_t rightSpeed = readShort(8);
-        encoders[1].setTarPWM(-rightSpeed);
-      }
-      break;
-    case STEPPER_NEW:
-      {
-        uint8_t subcmd = port;
-        uint8_t extID = readBuffer(3);
-        uint8_t slot_num = readBuffer(7);
-        int16_t maxSpeed = 0;
-        if(STEPPER_POS_MOTION_MOVE == subcmd)
-        {
-          long pos_temp = readLong(8);
-          int16_t speed_temp = readShort(12);
-          maxSpeed = abs(speed_temp);
-
-          initStepper(slot_num - 1,maxSpeed);
-          steppers[slot_num - 1].move(pos_temp,extID,stepper_move_finish_callback);
-        }
-        if(STEPPER_SPEED_MOTION == subcmd)
-        {
-          int16_t speed_temp = readShort(8);
-
-          initStepper(slot_num - 1,speed_temp);
-          steppers[slot_num - 1].setSpeed(speed_temp);
-        }
-        if(STEPPER_POS_MOTION_MOVETO == subcmd)
-        {
-          long pos_temp = readLong(8);
-          int16_t speed_temp = readShort(12);
-          maxSpeed = abs(speed_temp);
-
-          initStepper(slot_num - 1,maxSpeed);
-          steppers[slot_num - 1].moveTo(pos_temp,extID,stepper_move_finish_callback);
-        }
-        else if(STEPPER_SET_CUR_POS_ZERO == subcmd)
-        {
-          steppers[slot_num - 1].setCurrentPosition(0);
-        }
-      }
-      break;
-    case STEPPER:
-      {
-        int16_t maxSpeed = readShort(7);
-        long distance = readLong(9);
-        steppers[port - 1] = MeStepperOnBoard(port);
-        initStepper(port - 1,maxSpeed);
-        steppers[port - 1].moveTo(distance);
-      } 
-      break;
-    case RGBLED:
-      {
-        uint8_t slot = readBuffer(7);
-        uint8_t idx = readBuffer(8);
-        uint8_t pixels_len = readBuffer(2) - 6;
-        if((port != 0) && ((led.getPort() != port) || (led.getSlot() != slot)))
-        {
-          led.reset(port,slot);
-        }
-        if(idx>0)
-        {
-          for(uint8_t i=0;i<pixels_len;i+=3)
-          {
-            led.setColorAt(idx+i/3-1,readBuffer(9+i),readBuffer(10+i),readBuffer(11+i)); 
-          }
-        }
-        else
-        {
-          led.setColor(readBuffer(9),readBuffer(10),readBuffer(11)); 
-        }
-        led.show();
-      }
-      break;
     case COMMON_COMMONCMD:
       {
         uint8_t subcmd = port;
@@ -1456,11 +920,8 @@ void runModule(uint8_t device)
         if(SET_MEGAPI_MODE == subcmd)
         {
           Stop();
-          if((cmd_data == BALANCED_MODE) || 
-             (cmd_data == AUTOMATIC_OBSTACLE_AVOIDANCE_MODE) || 
-             (cmd_data == BLUETOOTH_MODE) ||
-             (cmd_data == IR_REMOTE_MODE) ||
-             (cmd_data == LINE_FOLLOW_MODE))
+          if((cmd_data == BLUETOOTH_MODE) || 
+             (cmd_data == AUTOMATIC_OBSTACLE_AVOIDANCE_MODE))
           {
             megapi_mode = cmd_data;
             if(EEPROM.read(MEGAPI_MODE_CONFIGURE) != megapi_mode)
@@ -1479,94 +940,6 @@ void runModule(uint8_t device)
         }
       }
       break;
-    case SERVO:
-      {
-        uint8_t slot = readBuffer(7);
-        pin = slot==1?mePort[port].s1:mePort[port].s2;
-        uint8_t v = readBuffer(8);
-        Servo sv = servos[searchServoPin(pin)];
-        if(v >= 0 && v <= 180)
-        {
-          if(!sv.attached())
-          {
-            sv.attach(pin);
-          }
-          sv.write(v);
-        }
-      }
-      break;
-    case SEVSEG:
-      {
-        if(seg.getPort() != port)
-        {
-          seg.reset(port);
-        }
-        float v = readFloat(7);
-        seg.display(v);
-      }
-      break;
-    case LEDMATRIX:
-      {
-        if(ledMx.getPort()!=port)
-        {
-          ledMx.reset(port);
-        }
-        uint8_t action = readBuffer(7);
-        if(action==1)
-        {
-          int8_t px = readBuffer(8);
-          int8_t py = readBuffer(9);
-          int8_t len = readBuffer(10);
-          char *s = readString(11,len);
-          ledMx.drawStr(px,py,s);
-        }
-        else if(action==2)
-        {
-          int8_t px = readBuffer(8);
-          int8_t py = readBuffer(9);
-          uint8_t *ss = readUint8(10,16);
-          ledMx.drawBitmap(px,py,16,ss);
-        }
-        else if(action==3)
-        {
-          int8_t point = readBuffer(8);
-          int8_t hours = readBuffer(9);
-          int8_t minutes = readBuffer(10);
-          ledMx.showClock(hours,minutes,point);
-        }
-        else if(action == 4)
-        {
-          ledMx.showNum(readFloat(8),3);
-        }
-      }
-      break;
-    case LIGHT_SENSOR:
-      {
-        if(generalDevice.getPort() != port)
-        {
-          generalDevice.reset(port);
-        }
-        uint8_t v = readBuffer(7);
-        generalDevice.dWrite1(v);
-      }
-      break;
-    case SHUTTER:
-      {
-        if(generalDevice.getPort() != port)
-        {
-          generalDevice.reset(port);
-        }
-        uint8_t v = readBuffer(7);
-        if(v < 2)
-        {
-          generalDevice.dWrite1(v);
-        }
-        else
-        {
-          generalDevice.dWrite2(v-2);
-        }
-      }
-      break;
     case DIGITAL:
       {
         pinMode(pin,OUTPUT);
@@ -1579,20 +952,6 @@ void runModule(uint8_t device)
         pinMode(pin,OUTPUT);
         uint8_t v = readBuffer(7);
         analogWrite(pin,v);
-      }
-      break;
-    case SERVO_PIN:
-      {
-        uint8_t v = readBuffer(7);
-        if(v >= 0 && v <= 180)
-        {
-          Servo sv = servos[searchServoPin(pin)];
-          if(!sv.attached())
-          {
-            sv.attach(pin);
-          }
-          sv.write(v);
-        }
       }
       break;
     case TIMER:
@@ -1682,37 +1041,6 @@ void runModule(uint8_t device)
 
 /**
  * \par Function
- *    searchServoPin
- * \par Description
- *    Check if the pin has been allocated, if it is not allocated,
- *    then allocate it.
- * \param[in]
- *    pin - arduino gpio number
- * \par Output
- *    None
- * \return
- *    the servo number be assigned
- * \par Others
- *    None
- */
-int16_t searchServoPin(int16_t pin)
-{
-  for(uint8_t i=0;i<12;i++)
-  {
-    if(servo_pins[i] == pin)
-    {
-      return i;
-    }
-    if(servo_pins[i] == 0)
-    {
-      servo_pins[i] = pin;
-      return i;
-    }
-  }
-  return 0;
-}
-/**
- * \par Function
  *    readSensor
  * \par Description
  *    This function is used to process query command.
@@ -1752,312 +1080,6 @@ void readSensor(uint8_t device)
         }
         value = (float)us->distanceCm();
         sendFloat(value);
-      }
-      break;
-    case TEMPERATURE_SENSOR:
-      {
-        slot = readBuffer(7);
-        if(ts.getPort() != port || ts.getSlot() != slot)
-        {
-          ts.reset(port,slot);
-        }
-        value = ts.temperature();
-        sendFloat(value);
-      }
-      break;
-    case LIGHT_SENSOR:
-    case SOUND_SENSOR:
-    case POTENTIONMETER:
-      {
-        if(generalDevice.getPort() != port)
-        {
-          generalDevice.reset(port);
-          pinMode(generalDevice.pin2(),INPUT);
-        }
-        value = generalDevice.aRead2();
-        sendFloat(value);
-      }
-      break;
-    case JOYSTICK:
-      {
-        slot = readBuffer(7);
-        if(joystick.getPort() != port)
-        {
-          joystick.reset(port);
-        }
-        if(slot==0)
-        {
-          sendShort(joystick.read(1));
-          sendShort(joystick.read(2));
-        }
-        else
-        {
-          value = joystick.read(slot);
-          sendFloat(value);
-        }
-      }
-      break;
-    case INFRARED:
-      {
-        if(ir == NULL)
-        {
-          ir = new MeInfraredReceiver(port);
-          ir->begin();
-        }
-        else if(ir->getPort() != port)
-        {
-          delete ir;
-          ir = new MeInfraredReceiver(port);
-          ir->begin();
-        }
-        irRead = ir->getCode();
-        if((irRead < 255) && (irRead > 0))
-        {
-          sendFloat((float)irRead);
-        }
-        else
-        {
-          sendFloat(0);
-        }
-      }
-      break;
-    case PIRMOTION:
-      {
-        if(generalDevice.getPort() != port)
-        {
-          generalDevice.reset(port);
-          pinMode(generalDevice.pin2(),INPUT);
-        }
-        value = generalDevice.dRead2();
-        sendFloat(value);
-      }
-      break;
-    case LINEFOLLOWER:
-      {
-        if(generalDevice.getPort() != port)
-        {
-          generalDevice.reset(port);
-          pinMode(generalDevice.pin1(),INPUT);
-          pinMode(generalDevice.pin2(),INPUT);
-        }
-        value = generalDevice.dRead1()*2+generalDevice.dRead2();
-        sendFloat(value);
-      }
-      break;
-    case LIMITSWITCH:
-      {
-        slot = readBuffer(7);
-        if(generalDevice.getPort() != port || generalDevice.getSlot() != slot)
-        {
-          generalDevice.reset(port,slot);
-        }
-        if(slot == 1)
-        {
-          pinMode(generalDevice.pin1(),INPUT_PULLUP);
-          value = !generalDevice.dRead1();
-        }
-        else
-        {
-          pinMode(generalDevice.pin2(),INPUT_PULLUP);
-          value = !generalDevice.dRead2();
-        }
-        sendFloat(value);  
-      }
-      break;
-    case COMPASS:
-      {
-        if(Compass.getPort() != port)
-        {
-          Compass.reset(port);
-          Compass.setpin(Compass.pin1(),Compass.pin2());
-        }
-        double CompassAngle;
-        CompassAngle = Compass.getAngle();
-        sendFloat((float)CompassAngle);
-      }
-      break;
-    case HUMITURE:
-      {
-        uint8_t index = readBuffer(7);
-        if(humiture.getPort() != port)
-        {
-          humiture.reset(port);
-        }
-        uint8_t HumitureData;
-        humiture.update();
-        if(index==2){
-          sendByte(humiture.getValue(0));
-          sendByte(humiture.getValue(1));
-        }else{
-          HumitureData = humiture.getValue(index);
-          sendByte(HumitureData);
-        }
-      }
-      break;
-    case FLAMESENSOR:
-      {
-        if(FlameSensor.getPort() != port)
-        {
-          FlameSensor.reset(port);
-          FlameSensor.setpin(FlameSensor.pin2(),FlameSensor.pin1());
-        }
-        int16_t FlameData; 
-        FlameData = FlameSensor.readAnalog();
-        sendShort(FlameData);
-      }
-      break;
-    case GASSENSOR:
-      {
-        if(GasSensor.getPort() != port)
-        {
-          GasSensor.reset(port);
-          GasSensor.setpin(GasSensor.pin2(),GasSensor.pin1());
-        }
-        int16_t GasData; 
-        GasData = GasSensor.readAnalog();
-        sendShort(GasData);
-      }
-      break;
-    case GYRO:
-      {
-        uint8_t axis = readBuffer(7);
-        if((port == 0) && (gyro_ext.getDevAddr() == 0x68))      //extern gyro
-        {
-          if(axis==0)
-          {
-            sendFloat(gyro_ext.getAngle(1));
-            sendFloat(gyro_ext.getAngle(2));
-            sendFloat(gyro_ext.getAngle(3));
-          }
-          else
-          {
-            sendFloat(gyro_ext.getAngle(axis));
-          }
-        }
-        else
-        {
-          sendFloat(0);
-        }
-      }
-      break;
-    case COLORSENSOR:
-      {
-        uint8_t colorsubcmd = 0;
-        uint8_t colorindex = 0;
-        uint8_t result = 0;
-        uint32_t rgbcode = 0;
-     
-        colorsubcmd = readBuffer(7);
-        colorindex  = readBuffer(8);
-
-        if(colorsensor == NULL)
-        {
-          colorsensor = new MeColorSensor(port);
-        }
-        else if(colorsensor->getPort() != port)
-        {
-          delete colorsensor;
-          colorsensor = new MeColorSensor(port);
-        }
-        
-        if(colorsubcmd == GETRGB)
-        {
-          if(colorindex == 0x00)//r
-          {
-            colorsensor->ColorDataReadOnebyOne();
-            rgbcode = colorsensor->ReturnColorCode();
-            result = (uint8_t)(rgbcode>>16);
-          }
-          else if(colorindex == 0x01)//g
-          {
-            colorsensor->ColorDataReadOnebyOne();
-            rgbcode = colorsensor->ReturnColorCode();
-            result = (uint8_t)(rgbcode>>8);
-          }
-          else if(colorindex == 0x02)//b
-          {
-            colorsensor->ColorDataReadOnebyOne();
-            rgbcode = colorsensor->ReturnColorCode();
-            result = (uint8_t)rgbcode;
-          }
-          else if(colorindex == 0x03)//rgb
-          {
-            colorsensor->ColorDataReadOnebyOne();
-            rgbcode = colorsensor->ReturnColorCode();
-            sendLong(rgbcode);
-          }
-        }
-        else if(colorsubcmd == GETBOOL)
-        {
-          result = colorsensor->ColorIdentify();
-          if(colorindex == 0x00)
-          {
-            if(result == WHITE)
-            {
-              result =0x01;
-            }
-            else
-            {
-              result =0x00;
-            }
-          }
-          else if(colorindex == 0x02)
-          {
-            if(result == RED)
-            {
-              result =0x01;
-            }
-            else
-            {
-              result =0x00;
-            }
-          }
-          else if(colorindex == 0x04)
-          {
-            if(result == YELLOW)
-            {
-              result =0x01;
-            }
-            else
-            {
-              result =0x00;
-            }
-          }
-          else if(colorindex == 0x05)
-          {
-            if(result == GREEN)
-            {
-              result =0x01;
-            }
-            else
-            {
-              result =0x00;
-            }
-          }
-          else if(colorindex == 0x07)
-          {
-            if(result == BLUE)
-            {
-              result =0x01;
-            }
-            else
-            {
-              result =0x00;
-            }
-          }
-          else if(colorindex == 0x09)
-          {
-            if(result == BLACK)
-            {
-              result =0x01;
-            }
-            else
-            {
-              result =0x00;
-            }
-          }
-        }
-        sendByte(result);
       }
       break;
     case VERSION:
@@ -2111,34 +1133,6 @@ void readSensor(uint8_t device)
         sendFloat((float)currentTime);
       }
       break;
-    case TOUCH_SENSOR:
-      {
-        if(touchSensor.getPort() != port)
-        {
-          touchSensor.reset(port);
-        }
-        sendByte(touchSensor.touched());
-      }
-      break;
-    case BUTTON:
-      {
-
-        uint8_t key_num = readBuffer(7);
-        if(buttonSensor.getPort() != port)
-        {
-          buttonSensor.reset(port);
-        }
-
-        if(key_num == 0)
-        {
-          sendByte(keyPressed);
-        }
-        else
-        {
-          sendByte(keyPressed == readBuffer(7));
-        }
-      }
-      break;
     case ENCODER_BOARD:
       {
         if(port == 0)
@@ -2175,336 +1169,6 @@ void readSensor(uint8_t device)
 
 /**
  * \par Function
- *    PID_angle_compute
- * \par Description
- *    The angle process for balance car
- * \param[in]
- *    None
- * \par Output
- *    None
- * \return
- *    None
- * \par Others
- *    None
- */
-void PID_angle_compute(void)   //PID
-{
-  CompAngleX = -gyro_ext.getAngleX();
-  double error = CompAngleX - PID_angle.Setpoint;
-  PID_angle.Integral += error;
-  PID_angle.Integral = constrain(PID_angle.Integral,-100,100); 
-  PID_angle.differential = angle_speed;
-  PID_angle.Output = PID_angle.P * error + PID_angle.I * PID_angle.Integral + PID_angle.D * PID_angle.differential;
-  if(PID_angle.Output > 0)
-  {
-    PID_angle.Output = PID_angle.Output + PWM_MIN_OFFSET;
-  }
-  else
-  {
-    PID_angle.Output = PID_angle.Output - PWM_MIN_OFFSET;
-  }
-
-  double pwm_left = PID_angle.Output - PID_turn.Output;
-  double pwm_right = -PID_angle.Output - PID_turn.Output;
-
-#ifdef DEBUG_INFO
-  Serial.print("Relay: ");
-  Serial.print(PID_angle.Setpoint);
-  Serial.print(" AngX: ");
-  Serial.print(CompAngleX);
-  Serial.print(" Output: ");
-  Serial.print(PID_angle.Output);
-  Serial.print("PID_angle.Integral: ");
-  Serial.print(PID_angle.Integral);
-  Serial.print(" dif: ");
-  Serial.println(PID_angle.differential);
-#endif
-
-  pwm_left = constrain(pwm_left, -255, 255);
-  pwm_right = constrain(pwm_right, -255, 255);
-
-  encoders[0].setMotorPwm(pwm_left);
-  encoders[1].setMotorPwm(pwm_right);
-}
-
-/**
- * \par Function
- *    PID_speed_compute
- * \par Description
- *    The speed process for balance car
- * \param[in]
- *    None
- * \par Output
- *    None
- * \return
- *    None
- * \par Others
- *    None
- */
-void PID_speed_compute(void)
-{
-  double speed_now = (encoders[1].getCurrentSpeed() - encoders[0].getCurrentSpeed())/2;
-
-  last_speed_setpoint_filter  = last_speed_setpoint_filter  * 0.8;
-  last_speed_setpoint_filter  += PID_speed.Setpoint * 0.2;
- 
-  if((move_flag == true) && (abs(speed_now) < 8) && (PID_speed.Setpoint == 0))
-  {
-    move_flag = false;
-    last_speed_setpoint_filter = 0;
-    PID_speed.Integral = speed_Integral_average;
-  }
-
-  double error = speed_now - last_speed_setpoint_filter;
-  PID_speed.Integral += error;
-
-  if(move_flag == true) 
-  { 
-    PID_speed.Integral = constrain(PID_speed.Integral , -2000, 2000);
-    PID_speed.Output = PID_speed.P * error + PID_speed.I * PID_speed.Integral;
-    PID_speed.Output = constrain(PID_speed.Output , -8.0, 8.0);
-  }
-  else
-  {  
-    PID_speed.Integral = constrain(PID_speed.Integral , -2000, 2000);
-    PID_speed.Output = PID_speed.P * speed_now + PID_speed.I * PID_speed.Integral;
-    PID_speed.Output = constrain(PID_speed.Output , -10.0, 10.0);
-    speed_Integral_average = 0.8 * speed_Integral_average + 0.2 * PID_speed.Integral;
-  }
-  
-#ifdef DEBUG_INFO
-  Serial.print(speed_now);
-  Serial.print(","); 
-  Serial.print(PID_speed.Setpoint);
-  Serial.print(",");      
-  Serial.print(last_speed_error_filter);
-  Serial.print(",");
-  Serial.print(last_speed_setpoint_filter);
-  Serial.print(",");
-  Serial.print(PID_speed.Integral);
-  Serial.print(",");
-  Serial.println(PID_speed.Output);
-#endif
-  PID_angle.Setpoint =  RELAX_ANGLE + PID_speed.Output;
-}
-
-int16_t agx_start_count;
-
-/**
- * \par Function
- *    reset
- * \par Description
- *    The exception process for balance car
- * \param[in]
- *    None
- * \par Output
- *    None
- * \return
- *    None
- * \par Others
- *    None
- */
-void reset(void)
-{
-  if((start_flag == false) && (abs(gyro_ext.getAngleX()) < 5))
-  {
-    agx_start_count++;
-  }
-  if((start_flag == true) && (abs(gyro_ext.getAngleX()) > 32))
-  {
-    agx_start_count = 0;
-    encoders[0].setMotorPwm(0);
-    encoders[1].setMotorPwm(0);
-    PID_speed.Integral = 0;
-    PID_angle.Setpoint = RELAX_ANGLE;
-    PID_speed.Setpoint = 0;
-    PID_turn.Setpoint = 0;
-    encoders[0].setPulsePos(0);
-    encoders[1].setPulsePos(0);
-    PID_speed.Integral = 0;
-    start_flag = false;
-    last_speed_setpoint_filter = 0.0;
-    last_turn_setpoint_filter = 0.0;
-#ifdef DEBUG_INFO
-    Serial.println("> 32");
-#endif
-  }
-  else if(agx_start_count > 20)
-  {
-    agx_start_count = 0;
-    PID_speed.Integral = 0;
-    encoders[0].setMotorPwm(0);
-    encoders[1].setMotorPwm(0);
-    PID_angle.Setpoint = RELAX_ANGLE;
-    encoders[0].setPulsePos(0);
-    encoders[1].setPulsePos(0);
-    lasttime_speed = lasttime_angle = millis();
-    start_flag = true;
-#ifdef DEBUG_INFO
-    Serial.println("< 5");
-#endif
-  }
-}
-
-/**
- * \par Function
- *    parseGcode
- * \par Description
- *    The function used to configure parameters for balance car.
- * \param[in]
- *    cmd - Gcode command
- * \par Output
- *    None
- * \return
- *    None
- * \par Others
- *    None
- */
-void parseGcode(char * cmd)
-{
-  char * tmp;
-  char * str;
-  char g_code_cmd;
-  float p_value = 0;
-  float i_value = 0;
-  float d_value = 0;
-  float relax_angle = 0;
-  str = strtok_r(cmd, " ", &tmp);
-  g_code_cmd = str[0];
-  while(str!=NULL)
-  {
-    str = strtok_r(0, " ", &tmp);
-    if((str[0]=='P') || (str[0]=='p')){
-      p_value = atof(str+1);
-    }else if((str[0]=='I') || (str[0]=='i')){
-      i_value = atof(str+1);
-    }else if((str[0]=='D') || (str[0]=='d')){
-      d_value = atof(str+1);
-    }
-    else if((str[0]=='Z') || (str[0]=='z')){
-      relax_angle  = atof(str+1);
-    }
-    else if((str[0]=='M') || (str[0]=='m')){
-      megapi_mode  = atof(str+1);
-    }
-  }
-//#ifdef DEBUG_INFO
-  Serial.print("PID: ");
-  Serial.print(p_value);
-  Serial.print(", ");
-  Serial.print(i_value);
-  Serial.print(",  ");
-  Serial.println(d_value);
-//#endif
-  if(g_code_cmd == '1')
-  {
-    PID_angle.P = p_value;
-    PID_angle.I = i_value;
-    PID_angle.D = d_value;
-    EEPROM.put(BALANCED_CAR_ANGLE_PID_ADDR, PID_angle.P);
-    EEPROM.put(BALANCED_CAR_ANGLE_PID_ADDR+4, PID_angle.I);
-    EEPROM.put(BALANCED_CAR_ANGLE_PID_ADDR+8, PID_angle.D);
-  }
-  else if(g_code_cmd == '2')
-  {
-    PID_speed.P = p_value;
-    PID_speed.I = i_value;
-    PID_speed.D = d_value;
-    EEPROM.put(BALANCED_CAR_SPEED_PID_ADDR, PID_speed.P);
-    EEPROM.put(BALANCED_CAR_SPEED_PID_ADDR+4, PID_speed.I);
-    EEPROM.put(BALANCED_CAR_SPEED_PID_ADDR+8, PID_speed.D);
-  }
-  else if(g_code_cmd == '3')
-  {
-    RELAX_ANGLE = relax_angle;
-    EEPROM.put(BALANCED_CAR_NATURAL_BALANCE, relax_angle);
-  }
-  else if(g_code_cmd == '4')
-  {
-    if(EEPROM.read(MEGAPI_MODE_CONFIGURE) != megapi_mode)
-    {
-      EEPROM.write(MEGAPI_MODE_CONFIGURE, megapi_mode);
-    }
-    Serial.print("megapi_mode: ");
-    Serial.println(megapi_mode);
-  }
-}
-
-/**
- * \par Function
- *    parseCmd
- * \par Description
- *    The function used to parse Gcode command.
- * \param[in]
- *    cmd - Gcode command
- * \par Output
- *    None
- * \return
- *    None
- * \par Others
- *    None
- */
-void parseCmd(char * cmd)
-{
-  if((cmd[0]=='g') || (cmd[0]=='G'))
-  { 
-    // gcode
-    parseGcode(cmd+1);
-  }
-}
-
-/**
- * \par Function
- *    balanced_model
- * \par Description
- *    The main function for balanced car model
- * \param[in]
- *    None
- * \par Output
- *    None
- * \return
- *    None
- * \par Others
- *    None
- */
-void balanced_model(void)
-{
-  reset();
-  if(start_flag == true)
-  {
-    if((millis() - lasttime_angle) > 10)
-    {
-      PID_angle_compute();
-      lasttime_angle = millis();
-    }    
-    if((millis() - lasttime_speed) > 100)
-    {
-      PID_speed_compute();
-      last_turn_setpoint_filter  = last_turn_setpoint_filter * 0.8;
-      last_turn_setpoint_filter  += PID_turn.Setpoint * 0.2;
-      PID_turn.Output = last_turn_setpoint_filter;
-      lasttime_speed = millis();
-    }
-  }
-  else
-  {
-    encoders[0].setMotorPwm(0);
-    encoders[1].setMotorPwm(0);
-  } 
-}
-
-void TreeScan(void){
-    
-    Stop();
-    delay(500);
-    encoders[2].moveTo(2160,300); // lower the arm
-    delay(2000);  // scanning the tree
-    encoders[2].moveTo(0,300);
-
-}
-
-/**
- * \par Function
  *    ultrCarProcess
  * \par Description
  *    The main function for ultrasonic automatic obstacle avoidance
@@ -2535,21 +1199,6 @@ void ultrCarProcess(void)
 
   if((distance > 20) && (distance < 40))
   {
-    TreeScan();
-    
-    BackwardAndTurnLeft();
-    for(int16_t i=0;i<300;i++)
-    {
-        if(read_serial() == true)
-        {
-          break;
-        }
-        else
-        {
-          delay(2);
-        }
-    }
-    /*
     randnum=random(300);
     if((randnum > 190) && (!rightflag))
     {
@@ -2561,7 +1210,6 @@ void ultrCarProcess(void)
       rightflag=true;
       TurnRight();  
     }
-    */
   }
   else if((distance < 20) && (distance > 0))
   {
@@ -2604,142 +1252,6 @@ void ultrCarProcess(void)
     Forward();
   }
 }
-
-/**
- * \par Function
- *    IrProcess
- * \par Description
- *    The main function for IR control mode
- * \param[in]
- *    None
- * \par Output
- *    None
- * \return
- *    None
- * \par Others
- *    None
- */
-void IrProcess()
-{
-  if(ir == NULL)
-  {
-      ir = new MeInfraredReceiver(PORT_6);
-      ir->begin();
-  }
-  ir->loop();
-  irRead =  ir->getCode();
-  if((irRead != IR_BUTTON_TEST) && (megapi_mode != IR_REMOTE_MODE))
-  {
-    return;
-  }
-  switch(irRead)
-  {
-    case IR_BUTTON_PLUS: 
-      Forward();
-      break;
-    case IR_BUTTON_MINUS:
-      Backward();
-      break;
-    case IR_BUTTON_NEXT:
-      TurnRight();
-      break;
-    case IR_BUTTON_PREVIOUS:
-      TurnLeft();
-      break;
-    case IR_BUTTON_9:
-      ChangeSpeed(factor*9+minSpeed);
-      break;
-    case IR_BUTTON_8:
-      ChangeSpeed(factor*8+minSpeed);
-      break;
-    case IR_BUTTON_7:
-      ChangeSpeed(factor*7+minSpeed);
-      break;
-    case IR_BUTTON_6:
-      ChangeSpeed(factor*6+minSpeed);
-      break;
-    case IR_BUTTON_5:
-      ChangeSpeed(factor*5+minSpeed);
-      break;
-    case IR_BUTTON_4:
-      ChangeSpeed(factor*4+minSpeed);
-      break;
-    case IR_BUTTON_3:
-      ChangeSpeed(factor*3+minSpeed);
-      break;
-    case IR_BUTTON_2:
-      ChangeSpeed(factor*2+minSpeed);
-      break;
-    case IR_BUTTON_1:
-      ChangeSpeed(factor*1+minSpeed);
-      break;
-    case IR_BUTTON_0:
-      Stop();
-      break;
-    case IR_BUTTON_TEST:
-      Stop();
-      while( ir->buttonState() != 0)
-      {
-        ir->loop();
-      }
-      megapi_mode = megapi_mode + 1;
-      if(megapi_mode == MAX_MODE)
-      { 
-        megapi_mode = BLUETOOTH_MODE;
-      }
-      break;
-    default:
-      Stop();
-      break;
-  }
-}
-
-/**
- * \par Function
- *    line_model
- * \par Description
- *    The main function for Patrol Line navigation mode
- * \param[in]
- *    None
- * \par Output
- *    None
- * \return
- *    None
- * \par Others
- *    None
- */
-void line_model(void)
-{
-  uint8_t val;
-  val = line.readSensors();
-  moveSpeed=120;
-  switch (val)
-  {
-    case S1_IN_S2_IN:
-      Forward();
-      LineFollowFlag=10;
-      break;
-
-    case S1_IN_S2_OUT:
-       Forward();
-      if (LineFollowFlag>1) LineFollowFlag--;
-      break;
-
-    case S1_OUT_S2_IN:
-      Forward();
-      if (LineFollowFlag<20) LineFollowFlag++;
-      break;
-
-    case S1_OUT_S2_OUT:
-      if(LineFollowFlag==10) Backward();
-      if(LineFollowFlag<10) TurnLeft1();
-      if(LineFollowFlag>10) TurnRight1();
-      break;
-  }
-}
-
-uint8_t buf[64];
-uint8_t bufindex;
 
 /**
  * \par Function
@@ -2802,8 +1314,8 @@ boolean read_serial(void)
     return result;
   }
 }
-void setup()
-{
+void setup() {
+
   Serial.begin(115200);
   Serial2.begin(115200);
   Serial3.begin(115200);
@@ -2819,8 +1331,6 @@ void setup()
   attachInterrupt(encoders[1].getIntNum(), isr_process_encoder2, RISING);
   attachInterrupt(encoders[2].getIntNum(), isr_process_encoder3, RISING);
   attachInterrupt(encoders[3].getIntNum(), isr_process_encoder4, RISING);
-  delay(5);
-  gyro_ext.begin();
   delay(5);
   pinMode(13,OUTPUT);
 
@@ -2841,19 +1351,11 @@ void setup()
     encoders[i].setPosPid(1.8,0,1.2);
     encoders[i].setSpeedPid(0.18,0,0);
     encoders[i].setMotionMode(DIRECT_MODE);
-    //encoders[2].setMotionMode(PID_MODE);
   }
 
   leftflag=false;
   rightflag=false;
-  PID_angle.Setpoint = RELAX_ANGLE;
-  PID_angle.P = 20;          // 20;
-  PID_angle.I = 1;           // 1;
-  PID_angle.D = 0.2;         // 0.2;
-  PID_speed.P = 0.06;        // 0.06
-  PID_speed.I = 0.005;       // 0.005
-  readEEPROM();
-  megapi_mode = AUTOMATIC_OBSTACLE_AVOIDANCE_MODE;
+  //megapi_mode = AUTOMATIC_OBSTACLE_AVOIDANCE_MODE;  // AUTOMATIC_OBSTACLE_AVOIDANCE_MODE or BLUETOOTH_MODE (default)
   Serial.print("Version: ");
   Serial.println(mVersion);
   update_sensor = lasttime_speed = lasttime_angle = millis();
@@ -2861,24 +1363,9 @@ void setup()
   BluetoothSource = DATA_SERIAL;
 }
 
-/**
- * \par Function
- *    loop
- * \par Description
- *    main function for arduino
- * \param[in]
- *    None
- * \par Output
- *    None
- * \return
- *    None
- * \par Others
- *    None
- */
-void loop()
-{
+void loop() {
+  
   currentTime = millis()/1000.0-lastTime;
-  keyPressed = buttonSensor.pressed();
 
   if(millis() - blink_time > 1000)
   {
@@ -2887,14 +1374,8 @@ void loop()
     digitalWrite(13,blink_flag);
   }
 
-  if(ir != NULL)
-  {
-    IrProcess();
-  }
-
   for(int i=0;i<4;i++)
   {
-    steppers[i].update();
     encoders[i].loop();
   }
 
@@ -2954,30 +1435,16 @@ void loop()
     readSerial();
   }
 
-  if(Compass.getPort() != 0)
-  {
-    Compass.getAngle();
-  }
-  angle_speed = gyro_ext.getGyroY();
   if(megapi_mode == BLUETOOTH_MODE)
   {
     if(millis() - update_sensor > 10)
     {
       update_sensor = millis();
-      gyro_ext.fast_update();
     }
   }
   else if(megapi_mode == AUTOMATIC_OBSTACLE_AVOIDANCE_MODE)
   { 
     ultrCarProcess();
   }
-  else if(megapi_mode == BALANCED_MODE)
-  {
-    gyro_ext.fast_update();
-    balanced_model();
-  }
-  else if(megapi_mode == LINE_FOLLOW_MODE)
-  {
-    line_model();
-  }
+
 }
