@@ -1,6 +1,7 @@
-# ART-E
-Software used in ART-E project
+# ART-E Software
+
+Compilation of software & firmware used in development of ART-E '23 prototype
 
 
-UPDATE LATER ONCE REPO IS POPULATED
+MORE DETAIL TO BE ADDED AS REPO CONTINUES TO BE POPULATED SO THAT FUTURE GROUPS CAN EXPAND UPON OUR WORK
 
