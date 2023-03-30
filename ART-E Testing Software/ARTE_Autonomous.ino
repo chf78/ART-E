@@ -71,17 +71,17 @@ void move(int direction, int speed){
   int rightSpeed = 0;
   speed = (speed/100.0)*255;
   if(direction == FORWARD){
-    leftSpeed = -1 * speed;
-    rightSpeed = speed;
+    leftSpeed = speed;
+    rightSpeed = -1*speed;
   }else if(direction == BACKWARD){
-    leftSpeed = speed;
-    rightSpeed = -1 * speed;
+    leftSpeed = -1*speed;
+    rightSpeed = speed;
   }else if(direction == LEFT){
+    leftSpeed = -1*speed;
+    rightSpeed = -1*speed;
+  }else if(direction == RIGHT){
     leftSpeed = speed;
     rightSpeed = speed;
-  }else if(direction == RIGHT){
-    leftSpeed = -1 * speed;
-    rightSpeed = -1 * speed;
   }
   Encoder_1.setMotorPwm(rightSpeed);
   Encoder_2.setMotorPwm(leftSpeed);
