@@ -1,33 +1,39 @@
 
 #include <MeMegaPi.h>
-//#include <Wire.h>
-//#include <SoftwareSerial.h>
 
-/* directions */
+/* driving directions */
 #define FORWARD   1
 #define BACKWARD  2
 #define LEFT      3
 #define RIGHT     4
 
+/* arm directions */
+#define STOP  0
+#define UP    1
+#define DOWN  2
+
+/* fixed arm speed */
+const uint8_t armSpeed = (50/100.0)*255;
+
 /* state names for autonomous driving */
 #define CLEAR       0
 #define OBSTACLE    1
-#define CHECK_LEFT  2
-#define CHECK_RIGHT 3
-#define RECENTER    4
-#define GO_LEFT     5
-#define GO_RIGHT    6
-#define TURN_AROUND 7
+#define SCAN        2
+#define CHECK_LEFT  3
+#define CHECK_RIGHT 4
+#define TURN_AROUND 5
 
 uint8_t pathState;
 volatile uint8_t leftDist, rightDist;
 
-/* encoder motor on slot 1 */
+/* encoder motors on slots 1, 2, and 3 */
 MeEncoderOnBoard Encoder_1(SLOT_1);
 MeEncoderOnBoard Encoder_2(SLOT_2);
+MeEncoderOnBoard Encoder_3(SLOT_3);
 
 MeUltrasonicSensor ultraSensor(PORT_7);
 
+/********* interrupt handlers for encoder motors ***********/
 void isr_process_encoder1(){
   if(digitalRead(Encoder_1.getPortB()) == 0){
     Encoder_1.pulsePosMinus();
@@ -44,6 +50,16 @@ void isr_process_encoder2(){
   }
 }
 
+void isr_process_encoder3(){
+  if(digitalRead(Encoder_3.getPortB()) == 0){
+    Encoder_3.pulsePosMinus();
+  }else{
+    Encoder_3.pulsePosPlus();
+  }
+}
+/******************************************************/
+
+/******** pulse width modulation setup ****************/
 void TimerPWM_init() {
 
   //Set PWM 8KHz
@@ -54,34 +70,40 @@ void TimerPWM_init() {
   TCCR2B = _BV(CS21);
   
 }
+/**************************************************/
 
 void setup() {
 
   // encoder motor setup
   attachInterrupt(Encoder_1.getIntNum(), isr_process_encoder1, RISING);
   attachInterrupt(Encoder_2.getIntNum(), isr_process_encoder2, RISING);
+  attachInterrupt(Encoder_3.getIntNum(), isr_process_encoder3, RISING);
+  
   TimerPWM_init();
+  
   Serial.begin(115200);
 
   pathState = CLEAR;
+  
 }
 
+/************* driving functions ******************/
 void move(int direction, int speed){
   int leftSpeed = 0;
   int rightSpeed = 0;
   speed = (speed/100.0)*255;
   if(direction == FORWARD){
-    leftSpeed = speed;
-    rightSpeed = -1*speed;
+    leftSpeed = -1*speed;
+    rightSpeed = speed;
   }else if(direction == BACKWARD){
-    leftSpeed = -1*speed;
-    rightSpeed = speed;
-  }else if(direction == LEFT){
-    leftSpeed = -1*speed;
+    leftSpeed = speed;
     rightSpeed = -1*speed;
-  }else if(direction == RIGHT){
+  }else if(direction == LEFT){
     leftSpeed = speed;
     rightSpeed = speed;
+  }else if(direction == RIGHT){
+    leftSpeed = -1*speed;
+    rightSpeed = -1*speed;
   }
   Encoder_1.setMotorPwm(rightSpeed);
   Encoder_2.setMotorPwm(leftSpeed);
@@ -90,6 +112,22 @@ void move(int direction, int speed){
 void Stop(){
   Encoder_1.setMotorPwm(0);
   Encoder_2.setMotorPwm(0);
+}
+
+void armMove(uint8_t direction){
+  
+  switch(direction){
+    case STOP:
+      Encoder_3.setMotorPwm(STOP);
+    break;
+    case DOWN:
+      Encoder_3.setMotorPwm(-1*armSpeed);
+    break;
+    case UP:
+      Encoder_3.setMotorPwm(armSpeed);
+    break;
+  }
+  
 }
 
 void checkLeft(){
@@ -108,13 +146,6 @@ void checkRight(){
   rightDist = ultraSensor.distanceCm();
 }
 
-void Center(){
-  move(LEFT, 50);
-  delay(900);
-  Stop();
-  //delay(2500);
-}
-
 void turnAround(){
   move(LEFT, 50);
   delay(2500);
@@ -122,8 +153,9 @@ void turnAround(){
   delay(2500);
 }
 
+/***************** finite state machine **********************/
 void autoDrive(){
-  int minDistance = 20; // minimum distance in cm for detecting obstacles
+  int minDistance = 15; // minimum distance in cm for detecting obstacles
   switch(pathState){
     case CLEAR:
       move(FORWARD, 50);
@@ -133,31 +165,29 @@ void autoDrive(){
       Stop();
       delay(250);
       move(BACKWARD, 50);
-      delay(500);
+      delay(250);
       Stop();
+      pathState = SCAN;
+    break;
+    case SCAN:
+      armMove(DOWN);
+      delay(2500);
+      armMove(STOP);
+      delay(500);
+      armMove(UP);
+      delay(2500);
+      armMove(STOP);
       pathState = CHECK_LEFT;
     break;
     case CHECK_LEFT:
       checkLeft();
-      pathState = CHECK_RIGHT;
+      if(leftDist <= 20){pathState = CHECK_RIGHT;}
+      if(leftDist > 20){pathState = CLEAR;}
     break;
     case CHECK_RIGHT:
       checkRight();
-      pathState = RECENTER;
-    break;
-    case RECENTER:
-      Center();
-      if((leftDist <= minDistance) && (rightDist <= minDistance)){pathState = TURN_AROUND;}
-      if(leftDist >= rightDist){pathState = GO_LEFT;}
-      if(rightDist > leftDist){pathState = GO_RIGHT;}
-    break;
-    case GO_LEFT:
-      checkLeft();
-      pathState = CLEAR;
-    break;
-    case GO_RIGHT:
-      checkRight();
-      pathState = CLEAR;
+      if(rightDist <= 20){pathState = TURN_AROUND;}
+      if(rightDist > 20){pathState = CLEAR;}
     break;
     case TURN_AROUND:
       turnAround();
